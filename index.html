@@ -1,0 +1,414 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>OpenClaw 清除工具</title>
+<style>
+* { box-sizing: border-box; margin: 0; padding: 0; }
+:root {
+  --red:#e8320a; --orange:#ff6a00; --dark:#080810; --card:#0f0f1a;
+  --border:rgba(232,50,10,.25); --text:#f0ddd8; --muted:#6a4a42;
+  --green:#00d46a; --glow:0 0 18px rgba(232,50,10,.55);
+  --font:'SF Mono','JetBrains Mono','Fira Code',monospace;
+}
+body {
+  background:var(--dark); color:var(--text); font-family:var(--font);
+  min-height:100vh; display:flex; flex-direction:column; align-items:center;
+  justify-content:flex-start; padding:24px 16px 40px; overflow-x:hidden;
+  background-image:
+    linear-gradient(rgba(232,50,10,.04) 1px,transparent 1px),
+    linear-gradient(90deg,rgba(232,50,10,.04) 1px,transparent 1px);
+  background-size:32px 32px;
+}
+.header { text-align:center; margin-bottom:20px; }
+.header h1 {
+  font-size:22px; font-weight:700; letter-spacing:2px;
+  background:linear-gradient(135deg,#ff6a00,#e8320a);
+  -webkit-background-clip:text; -webkit-text-fill-color:transparent;
+}
+.header p { font-size:11px; color:var(--muted); letter-spacing:3px; margin-top:4px; text-transform:uppercase; }
+.card {
+  background:var(--card); border:1px solid var(--border); border-radius:16px;
+  width:100%; max-width:680px; padding:28px; position:relative; overflow:hidden;
+}
+.card::before {
+  content:''; position:absolute; inset:0; border-radius:16px;
+  background:linear-gradient(135deg,rgba(232,50,10,.06) 0%,transparent 60%);
+  pointer-events:none;
+}
+
+/* ── Lobster ── */
+.lobster-stage { display:flex; justify-content:center; align-items:center; height:200px; position:relative; margin-bottom:20px; }
+.lobster-wrap  { position:relative; width:160px; height:190px; }
+.scan-line {
+  position:absolute; left:-10px; right:-10px; height:2px;
+  background:linear-gradient(90deg,transparent,rgba(232,50,10,.9),transparent);
+  box-shadow:0 0 8px rgba(232,50,10,.9); top:0; display:none; z-index:10;
+}
+.scanning .scan-line { display:block; animation:scan 1.4s ease-in-out infinite; }
+@keyframes scan { 0%{top:0;opacity:1} 90%{top:190px;opacity:.8} 100%{top:190px;opacity:0} }
+.scanning svg#lobster { animation:vibrate .12s infinite; }
+@keyframes vibrate {
+  0%,100%{transform:translate(0,0)} 25%{transform:translate(1px,-1px)}
+  50%{transform:translate(-1px,1px)} 75%{transform:translate(1px,1px)}
+}
+svg#lobster { width:160px; height:190px; filter:drop-shadow(0 0 12px rgba(232,50,10,.6)); }
+
+/* peeling animations */
+.peeling #sh-antenna-l { animation:fly-tl .7s ease-in 0s    forwards; }
+.peeling #sh-antenna-r { animation:fly-tr .7s ease-in .05s  forwards; }
+.peeling #sh-head      { animation:fly-up .65s ease-in .1s  forwards; }
+.peeling #sh-claw-l    { animation:fly-l  .75s ease-in .15s forwards; }
+.peeling #sh-claw-r    { animation:fly-r  .75s ease-in .2s  forwards; }
+.peeling #sh-legs-l    { animation:fly-l  .6s ease-in .1s   forwards; }
+.peeling #sh-legs-r    { animation:fly-r  .6s ease-in .1s   forwards; }
+.peeling #sh-body      { animation:fly-up .7s ease-in .25s  forwards; }
+.peeling #sh-tail      { animation:fly-dn .7s ease-in .3s   forwards; }
+.peeling #sh-overlay   { animation:fade-out .5s ease-in .1s forwards; }
+@keyframes fly-tl { to{transform:translate(-80px,-90px) rotate(-120deg);opacity:0} }
+@keyframes fly-tr { to{transform:translate(80px,-90px)  rotate(120deg);opacity:0}  }
+@keyframes fly-up { to{transform:translateY(-80px) rotate(-20deg);opacity:0}       }
+@keyframes fly-l  { to{transform:translate(-90px,30px) rotate(-90deg);opacity:0}   }
+@keyframes fly-r  { to{transform:translate(90px,30px)  rotate(90deg);opacity:0}    }
+@keyframes fly-dn { to{transform:translateY(80px) rotate(30deg);opacity:0}         }
+@keyframes fade-out { to{opacity:0} }
+.peeled #core-glow { animation:glow-pulse 1.5s ease-in-out infinite alternate; }
+@keyframes glow-pulse {
+  from{filter:drop-shadow(0 0 6px #00d46a)} to{filter:drop-shadow(0 0 18px #00d46a)}
+}
+
+/* ── Badge ── */
+.status-badge {
+  position:absolute; top:12px; right:16px; font-size:10px;
+  letter-spacing:2px; text-transform:uppercase; padding:3px 10px;
+  border-radius:20px; border:1px solid var(--border); color:var(--muted);
+}
+.status-badge.scanning { border-color:var(--orange); color:var(--orange); animation:blink 1s infinite; }
+.status-badge.cleaning { border-color:var(--red);    color:var(--red);    animation:blink .6s infinite; }
+.status-badge.done-ok  { border-color:var(--green);  color:var(--green); }
+@keyframes blink { 50%{opacity:.4} }
+
+/* ── Section ── */
+.section-title {
+  font-size:10px; letter-spacing:3px; text-transform:uppercase;
+  color:var(--muted); margin-bottom:10px; display:flex; align-items:center; gap:8px;
+}
+.section-title::after { content:''; flex:1; height:1px; background:var(--border); }
+
+/* ── Risk items ── */
+#findings { display:none; margin-bottom:18px; }
+.risk-item {
+  display:flex; align-items:flex-start; gap:10px; padding:9px 12px;
+  border-radius:8px; margin-bottom:6px;
+  background:rgba(232,50,10,.07); border:1px solid rgba(232,50,10,.15);
+  animation:slide-in .3s ease both;
+}
+@keyframes slide-in { from{opacity:0;transform:translateX(-12px)} }
+.risk-icon { font-size:14px; line-height:1.4; flex-shrink:0; }
+.risk-label { font-size:12px; color:#ffb8a8; font-weight:600; }
+.risk-detail { font-size:11px; color:var(--muted); margin-top:2px; }
+
+/* ── Progress ── */
+#progress-area { display:none; margin-bottom:18px; }
+.log-item {
+  display:flex; align-items:center; gap:10px; padding:7px 10px;
+  font-size:12px; color:var(--muted); animation:slide-in .25s ease both;
+}
+.log-item.running { color:var(--text); }
+.log-item.done    { color:var(--green); }
+.log-item.error   { color:#ff6060; }
+.log-dot { width:6px; height:6px; border-radius:50%; flex-shrink:0; background:currentColor; }
+.log-item.running .log-dot { animation:spin-dot .8s linear infinite; }
+@keyframes spin-dot { to{transform:rotate(360deg) scale(1.3)} }
+.log-check { margin-left:auto; font-size:14px; }
+
+/* ── Prog bar ── */
+#prog-bar-wrap { display:none; margin-bottom:18px; }
+#prog-bar-wrap .label { font-size:10px; color:var(--muted); letter-spacing:2px; margin-bottom:6px; text-transform:uppercase; }
+.prog-track { height:4px; background:rgba(255,255,255,.06); border-radius:4px; overflow:hidden; }
+.prog-fill  { height:100%; width:0%; border-radius:4px;
+  background:linear-gradient(90deg,var(--red),var(--orange));
+  box-shadow:0 0 8px rgba(255,106,0,.7); transition:width .4s ease; }
+
+/* ── Verify ── */
+#verify-area { display:none; margin-bottom:18px; }
+.verify-item { display:flex; align-items:center; gap:10px; font-size:12px; padding:5px 0; }
+.verify-item.ok  { color:var(--green); }
+.verify-item.bad { color:#ff6060; }
+
+/* ── Buttons ── */
+.btn-row { display:flex; gap:10px; justify-content:center; }
+.btn {
+  padding:10px 28px; border-radius:8px; font-size:13px; font-weight:600;
+  cursor:pointer; border:none; font-family:var(--font); letter-spacing:1px; transition:all .2s;
+}
+.btn:disabled { opacity:.35; cursor:not-allowed; }
+.btn-ghost { background:transparent; border:1px solid var(--border); color:var(--muted); }
+.btn-ghost:hover:not(:disabled) { border-color:var(--red); color:var(--text); }
+.btn-primary { background:linear-gradient(135deg,var(--red),#c82000); color:#fff; box-shadow:var(--glow); }
+.btn-primary:hover:not(:disabled) {
+  background:linear-gradient(135deg,#ff4a20,var(--red));
+  box-shadow:0 0 24px rgba(232,50,10,.8); transform:translateY(-1px);
+}
+.btn-success { background:linear-gradient(135deg,#00b85a,#007a3c); color:#fff; box-shadow:0 0 16px rgba(0,212,106,.4); }
+
+/* ── Misc ── */
+.footer { margin-top:14px; font-size:10px; color:var(--muted); letter-spacing:1px; text-align:center; }
+#success-banner {
+  display:none; text-align:center; padding:14px;
+  background:rgba(0,212,106,.07); border:1px solid rgba(0,212,106,.2);
+  border-radius:10px; margin-bottom:16px;
+}
+#success-banner h2 { font-size:16px; color:var(--green); margin-bottom:4px; }
+#success-banner p  { font-size:11px; color:var(--muted); }
+#no-risk { display:none; text-align:center; padding:20px; color:var(--green); font-size:13px; }
+</style>
+</head>
+<body>
+
+<div class="header">
+  <h1>🦞 &nbsp;OpenClaw 清除工具</h1>
+  <p>完全卸载 · 关闭端口 · 清除凭证</p>
+</div>
+
+<div class="card">
+  <span class="status-badge" id="badge">待机</span>
+
+  <!-- 龙虾动画区 -->
+  <div class="lobster-stage">
+    <div class="lobster-wrap" id="wrap">
+      <div class="scan-line"></div>
+      <svg id="lobster" viewBox="0 0 160 190" xmlns="http://www.w3.org/2000/svg">
+        <defs>
+          <radialGradient id="bg" cx="50%" cy="45%" r="55%">
+            <stop offset="0%" stop-color="#ff7744"/>
+            <stop offset="100%" stop-color="#aa1500"/>
+          </radialGradient>
+          <radialGradient id="claw-g" cx="40%" cy="35%" r="60%">
+            <stop offset="0%" stop-color="#ff6633"/>
+            <stop offset="100%" stop-color="#991100"/>
+          </radialGradient>
+          <radialGradient id="core-g" cx="50%" cy="45%" r="55%">
+            <stop offset="0%" stop-color="#ffdd88" stop-opacity=".9"/>
+            <stop offset="100%" stop-color="#cc7700" stop-opacity=".6"/>
+          </radialGradient>
+          <filter id="soft"><feGaussianBlur stdDeviation="1.2"/></filter>
+        </defs>
+
+        <!-- core (裸龙虾，壳飞走后变亮) -->
+        <g id="core-glow" opacity=".18">
+          <ellipse cx="80" cy="100" rx="26" ry="60" fill="url(#core-g)"/>
+          <ellipse cx="80" cy="75"  rx="22" ry="22" fill="url(#core-g)"/>
+          <circle cx="72" cy="70" r="3" fill="#fff" opacity=".8"/>
+          <circle cx="88" cy="70" r="3" fill="#fff" opacity=".8"/>
+        </g>
+
+        <!-- 壳光晕 -->
+        <g id="sh-overlay">
+          <ellipse cx="80" cy="98" rx="29" ry="63" fill="url(#bg)" opacity=".12" filter="url(#soft)"/>
+        </g>
+
+        <!-- 触须 -->
+        <g id="sh-antenna-l">
+          <line x1="69" y1="36" x2="28" y2="4"  stroke="#dd3300" stroke-width="3" stroke-linecap="round"/>
+          <line x1="72" y1="40" x2="44" y2="18" stroke="#cc2a00" stroke-width="2" stroke-linecap="round"/>
+        </g>
+        <g id="sh-antenna-r">
+          <line x1="91" y1="36" x2="132" y2="4"  stroke="#dd3300" stroke-width="3" stroke-linecap="round"/>
+          <line x1="88" y1="40" x2="116" y2="18" stroke="#cc2a00" stroke-width="2" stroke-linecap="round"/>
+        </g>
+
+        <!-- 头壳 -->
+        <g id="sh-head">
+          <ellipse cx="80" cy="60" rx="34" ry="30" fill="url(#bg)"/>
+          <path d="M62 48 Q80 44 98 48" stroke="#cc3300" stroke-width="1.5" fill="none" opacity=".7"/>
+          <path d="M58 58 Q80 54 102 58" stroke="#cc3300" stroke-width="1.2" fill="none" opacity=".5"/>
+          <circle cx="69" cy="56" r="5.5" fill="#1a0800"/>
+          <circle cx="91" cy="56" r="5.5" fill="#1a0800"/>
+          <circle cx="68" cy="55" r="2"   fill="#555"/>
+          <circle cx="90" cy="55" r="2"   fill="#555"/>
+          <circle cx="70" cy="54" r="1.2" fill="#fff" opacity=".7"/>
+          <circle cx="92" cy="54" r="1.2" fill="#fff" opacity=".7"/>
+        </g>
+
+        <!-- 左钳 -->
+        <g id="sh-claw-l">
+          <path d="M48 68 Q22 64 16 82 Q10 99 24 104 Q18 115 28 120 Q42 126 52 112 Q60 100 56 82 Z" fill="url(#claw-g)"/>
+          <path d="M24 104 Q8 97 6 113 Q6 126 22 123 Q30 118 24 104" fill="#bb2200"/>
+          <path d="M28 120 Q16 128 20 140 Q26 150 40 145 Q48 137 42 127 Z" fill="#bb2200"/>
+        </g>
+
+        <!-- 右钳 -->
+        <g id="sh-claw-r">
+          <path d="M112 68 Q138 64 144 82 Q150 99 136 104 Q142 115 132 120 Q118 126 108 112 Q100 100 104 82 Z" fill="url(#claw-g)"/>
+          <path d="M136 104 Q152 97 154 113 Q154 126 138 123 Q130 118 136 104" fill="#bb2200"/>
+          <path d="M132 120 Q144 128 140 140 Q134 150 120 145 Q112 137 118 127 Z" fill="#bb2200"/>
+        </g>
+
+        <!-- 左腿 -->
+        <g id="sh-legs-l" opacity=".9">
+          <line x1="52" y1="90"  x2="28" y2="112" stroke="#cc2200" stroke-width="3.5" stroke-linecap="round"/>
+          <line x1="50" y1="102" x2="24" y2="126" stroke="#bb2000" stroke-width="3"   stroke-linecap="round"/>
+          <line x1="50" y1="114" x2="26" y2="140" stroke="#aa1e00" stroke-width="2.5" stroke-linecap="round"/>
+        </g>
+        <!-- 右腿 -->
+        <g id="sh-legs-r" opacity=".9">
+          <line x1="108" y1="90"  x2="132" y2="112" stroke="#cc2200" stroke-width="3.5" stroke-linecap="round"/>
+          <line x1="110" y1="102" x2="136" y2="126" stroke="#bb2000" stroke-width="3"   stroke-linecap="round"/>
+          <line x1="110" y1="114" x2="134" y2="140" stroke="#aa1e00" stroke-width="2.5" stroke-linecap="round"/>
+        </g>
+
+        <!-- 身体节 -->
+        <g id="sh-body">
+          <ellipse cx="80" cy="102" rx="28" ry="20" fill="url(#bg)"/>
+          <ellipse cx="80" cy="124" rx="23" ry="16" fill="#d42e10"/>
+          <ellipse cx="80" cy="143" rx="18" ry="13" fill="#c42a0e"/>
+          <ellipse cx="80" cy="159" rx="14" ry="10" fill="#b4260c"/>
+          <path d="M54 102 Q80 98 106 102" stroke="#aa1a00" stroke-width="1" fill="none" opacity=".5"/>
+          <path d="M58 122 Q80 118 102 122" stroke="#991800" stroke-width="1" fill="none" opacity=".5"/>
+        </g>
+
+        <!-- 尾扇 -->
+        <g id="sh-tail">
+          <ellipse cx="57"  cy="178" rx="14" ry="7" transform="rotate(-35 57 178)"  fill="#dd3300"/>
+          <ellipse cx="80"  cy="183" rx="13" ry="8" fill="#cc2800"/>
+          <ellipse cx="103" cy="178" rx="14" ry="7" transform="rotate(35 103 178)"  fill="#dd3300"/>
+          <path d="M72 168 Q80 176 88 168" stroke="#bb2200" stroke-width="2" fill="none" opacity=".7"/>
+        </g>
+      </svg>
+    </div>
+  </div>
+
+  <!-- 扫描结果 -->
+  <div id="findings">
+    <div class="section-title">发现的风险</div>
+    <div id="findings-list"></div>
+  </div>
+  <div id="no-risk">✅ &nbsp;未发现 OpenClaw 安装痕迹，系统安全</div>
+
+  <!-- 进度日志 -->
+  <div id="progress-area">
+    <div class="section-title">清除进度</div>
+    <div id="log-list"></div>
+  </div>
+  <div id="prog-bar-wrap">
+    <div class="label">清除中…</div>
+    <div class="prog-track"><div class="prog-fill" id="prog-fill"></div></div>
+  </div>
+
+  <!-- 完成结果 -->
+  <div id="success-banner">
+    <h2>🦀 &nbsp;外壳已完全剥落</h2>
+    <p>所有 OpenClaw 组件已清除，系统安全风险已消除</p>
+  </div>
+  <div id="verify-area">
+    <div class="section-title">验证结果</div>
+    <div id="verify-list"></div>
+  </div>
+
+  <!-- 按钮 -->
+  <div class="btn-row">
+    <button class="btn btn-ghost" id="btn-cancel" onclick="window.close()" style="display:none">关闭</button>
+    <button class="btn btn-primary" id="btn-scan" onclick="doScan()">🔍 &nbsp;开始扫描</button>
+    <button class="btn btn-primary" id="btn-uninstall" onclick="doUninstall()" disabled style="display:none">⚡ &nbsp;立即清除</button>
+    <button class="btn btn-success" id="btn-done" onclick="window.close()" style="display:none">✓ &nbsp;完成，关闭</button>
+  </div>
+</div>
+
+<div class="footer">v1.0 · 清除后建议在飞书开放平台吊销 App Secret</div>
+
+<script>
+const wrap = document.getElementById('wrap');
+const badge = document.getElementById('badge');
+
+async function doScan() {
+  document.getElementById('btn-scan').disabled = true;
+  wrap.className = 'lobster-wrap scanning';
+  badge.textContent = '扫描中'; badge.className = 'status-badge scanning';
+  let findings;
+  try { findings = await fetch('/scan').then(r => r.json()); }
+  catch { alert('扫描请求失败，请重试。'); return; }
+  wrap.className = 'lobster-wrap';
+  badge.textContent = findings.length ? `发现 ${findings.length} 项风险` : '安全';
+  badge.className = findings.length ? 'status-badge cleaning' : 'status-badge done-ok';
+  if (!findings.length) {
+    document.getElementById('no-risk').style.display = 'block';
+    document.getElementById('btn-scan').textContent = '✓ 未发现风险';
+    document.getElementById('btn-cancel').style.display = '';
+    return;
+  }
+  const list = document.getElementById('findings-list');
+  findings.forEach((f, i) => {
+    const d = document.createElement('div');
+    d.className = 'risk-item'; d.style.animationDelay = (i*80)+'ms';
+    d.innerHTML = `<span class="risk-icon">${f.icon}</span>
+      <div><div class="risk-label">${f.label}</div><div class="risk-detail">${f.detail}</div></div>`;
+    list.appendChild(d);
+  });
+  document.getElementById('findings').style.display = 'block';
+  document.getElementById('btn-scan').style.display = 'none';
+  document.getElementById('btn-uninstall').style.display = '';
+  document.getElementById('btn-uninstall').disabled = false;
+  document.getElementById('btn-cancel').style.display = '';
+}
+
+const TOTAL_STEPS = 6;
+let doneSteps = 0;
+
+async function doUninstall() {
+  if (!confirm('确认执行？此操作将完全移除 OpenClaw 并删除相关数据。')) return;
+  document.getElementById('btn-uninstall').style.display = 'none';
+  document.getElementById('btn-cancel').style.display = 'none';
+  document.getElementById('findings').style.display = 'none';
+  wrap.className = 'lobster-wrap peeling';
+  badge.textContent = '清除中'; badge.className = 'status-badge cleaning';
+  document.getElementById('progress-area').style.display = 'block';
+  document.getElementById('prog-bar-wrap').style.display = 'block';
+  const logList = document.getElementById('log-list');
+  const progFill = document.getElementById('prog-fill');
+  const logItems = {};
+  const es = new EventSource('/uninstall');
+  es.onmessage = (e) => {
+    const msg = JSON.parse(e.data);
+    if (msg.t === 'step') {
+      const key = msg.label;
+      if (!logItems[key]) {
+        const el = document.createElement('div');
+        el.className = 'log-item running';
+        el.innerHTML = `<span class="log-dot"></span><span>${msg.label}</span><span class="log-check"></span>`;
+        logList.appendChild(el); logItems[key] = el;
+      }
+      if (msg.status === 'done') {
+        logItems[key].className = 'log-item done';
+        logItems[key].querySelector('.log-check').textContent = '✓';
+        doneSteps++; progFill.style.width = Math.round((doneSteps/TOTAL_STEPS)*100)+'%';
+      } else if (msg.status === 'error') {
+        logItems[key].className = 'log-item error';
+        logItems[key].querySelector('.log-check').textContent = '✗';
+      }
+    }
+    if (msg.t === 'complete') { es.close(); progFill.style.width='100%'; setTimeout(()=>showResults(msg),500); }
+  };
+}
+
+function showResults(msg) {
+  wrap.className = msg.success ? 'lobster-wrap peeled' : 'lobster-wrap';
+  badge.textContent = msg.success ? '已清除' : '部分完成';
+  badge.className = msg.success ? 'status-badge done-ok' : 'status-badge';
+  document.getElementById('prog-bar-wrap').style.display = 'none';
+  if (msg.success) document.getElementById('success-banner').style.display = 'block';
+  const vlist = document.getElementById('verify-list');
+  msg.results.forEach((r,i) => {
+    const d = document.createElement('div');
+    d.className = 'verify-item '+(r.ok?'ok':'bad');
+    d.style.animationDelay = (i*80)+'ms';
+    d.innerHTML = (r.ok?'✅':'❌')+' &nbsp;'+r.label;
+    vlist.appendChild(d);
+  });
+  document.getElementById('verify-area').style.display = 'block';
+  document.getElementById('btn-done').style.display = '';
+}
+</script>
+</body>
+</html>

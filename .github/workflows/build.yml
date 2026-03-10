@@ -1,0 +1,43 @@
+name: Build OpenClaw Uninstaller
+
+on:
+  push:
+    tags:
+      - 'v*'
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: windows-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install ps12exe
+        shell: powershell
+        run: Install-Module -Name ps12exe -Force -Scope CurrentUser
+
+      - name: Build exe
+        shell: powershell
+        run: |
+          Import-Module ps12exe
+          ps12exe .\uninstall.ps1 .\OpenClaw-Uninstaller.exe `
+            -title "OpenClaw Uninstaller" `
+            -description "Completely removes OpenClaw (AI Lobster) from Windows" `
+            -company "Mel0day" `
+            -version "1.0.0.0" `
+            -requireAdmin
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: OpenClaw-Uninstaller
+          path: OpenClaw-Uninstaller.exe
+
+      - name: Create Release
+        if: startsWith(github.ref, 'refs/tags/')
+        uses: softprops/action-gh-release@v2
+        with:
+          files: OpenClaw-Uninstaller.exe
+          generate_release_notes: true
